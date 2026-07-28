@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pallet Monitor — Panel Kontrol IoT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z"/><path d="M3 7.5v9L12 21l9-4.5v-9"/><path d="M12 12v9"/></svg></span>
+      <span>Pallet Monitor</span>
+    </div>
+    <div class="topbar-actions">
+      <div id="connBadge" class="conn-badge warn"><span class="dot"></span><span id="connText">Menyambungkan…</span></div>
+      <button class="icon-btn" title="Refresh manual" onclick="manualRefresh()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<section class="hero">
+  <div class="hero-grid">
+    <div>
+      <span class="eyebrow">Panel kontrol realtime</span>
+      <h1>Semua pallet, satu panel kontrol.</h1>
+      <p>Pantau berat, suhu, dan kelembapan setiap pallet secara langsung. Status tiap pallet menyesuaikan otomatis begitu ada sensor yang keluar dari batas normal.</p>
+      <div class="hero-actions">
+        <button class="btn btn-primary" onclick="document.getElementById('devices').scrollIntoView({behavior:'smooth'})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15 15.5 9.5"/><circle cx="12" cy="15" r="1"/></svg>
+          Lihat Panel Alat
+        </button>
+        <button class="btn btn-ghost" onclick="openPairModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15 15 9"/><path d="M8 17H6a4 4 0 0 1 0-8h2"/><path d="M16 7h2a4 4 0 0 1 0 8h-2"/></svg>
+          Pasang Alat Baru
+        </button>
+      </div>
+    </div>
+    <div class="vitals-panel">
+      <div class="vp-top"><span id="heroVpLabel">Pembacaan Live</span><span class="vp-id" id="heroVpId">—</span></div>
+      <div id="heroVpBody">
+        <div class="load-bar-value" id="heroVpValue">— <span id="heroVpUnit"></span></div>
+        <div class="load-bar-track"><div class="load-bar-fill" id="heroVpBar" style="width:0%"></div></div>
+        <div class="load-bar-scale"><span>0</span><span id="heroVpScale">Menunggu data…</span></div>
+        <div class="vp-chips" id="heroVpChips"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="summary-panel">
+  <div class="summary-item">
+    <div class="stat-icon stat-icon--neutral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z"/><path d="M3 7.5v9L12 21l9-4.5v-9"/><path d="M12 12v9"/></svg></div>
+    <div class="val" id="sumTotal">0</div><div class="lbl">Total Pallet</div>
+  </div>
+  <div class="summary-item">
+    <div class="stat-icon stat-icon--accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5 11 15l4.5-6"/></svg></div>
+    <div class="val" id="sumOnline">0</div><div class="lbl">Berfungsi Normal</div>
+  </div>
+  <div class="summary-item">
+    <div class="stat-icon stat-icon--amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.6 4 3 18h18L13.4 4a1.6 1.6 0 0 0-2.8 0Z"/><path d="M12 10v4"/><path d="M12 17.2v.1"/></svg></div>
+    <div class="val" id="sumWarn">0</div><div class="lbl">Perlu Diperiksa</div>
+  </div>
+  <div class="summary-item">
+    <div class="stat-icon stat-icon--slate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></div>
+    <div class="val" id="sumTime" style="font-size:15px">—:—:—</div><div class="lbl">Update Terakhir</div>
+  </div>
+</div>
+
+<section class="section" id="devices">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">Panel Pallet</span>
+      <h2>Kondisi tiap pallet, langsung dari sensornya</h2>
+      <p>Dial pada setiap kartu menunjukkan posisi berat, suhu, atau kelembapan pallet terhadap batas normalnya.</p>
+    </div>
+    <button class="btn btn-ghost" onclick="openPairModal()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Pasang Alat
+    </button>
+  </div>
+
+  <div class="device-grid" id="deviceGrid">
+    <!-- Kartu pallet digenerate otomatis dari DEVICES di script bawah. -->
+  </div>
+</section>
+
+<footer>Panel Kontrol IoT Pallet — terhubung langsung ke Firebase Realtime Database.</footer>
+
+<div class="modal-overlay" id="pairModal">
+  <div class="modal-box">
+    <h3>Pasang Alat Baru</h3>
+    <p>Sensor tidak perlu didaftarkan manual — begitu Firebase punya node dengan Device Key ini, dial akan otomatis dibuat sesuai data yang dikirim node tersebut.</p>
+    <label for="pairName">Nama Pallet</label>
+    <input type="text" id="pairName" placeholder="mis. Pallet Rack 01">
+    <label for="pairKey">Device Key (harus sama persis dgn node di Firebase)</label>
+    <input type="text" id="pairKey" placeholder="mis. PLT-0221">
+    <label for="pairToken">Token Pairing (opsional — cuma label, disimpan lokal)</label>
+    <input type="text" id="pairToken" placeholder="mis. ABC123XYZ">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closePairModal()">Batal</button>
+      <button class="btn btn-primary" onclick="submitPairing()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15 15 9"/><path d="M8 17H6a4 4 0 0 1 0-8h2"/><path d="M16 7h2a4 4 0 0 1 0 8h-2"/></svg>
+        Pasang
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.6 4 3 18h18L13.4 4a1.6 1.6 0 0 0-2.8 0Z"/><path d="M12 10v4"/><path d="M12 17.2v.1"/></svg>
+  <span id="toastMsg">Firebase Offline</span>
+</div>
+
+<script src="js/script.js"></script>
+</body>
+</html>
