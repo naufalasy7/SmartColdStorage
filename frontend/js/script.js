@@ -1,15 +1,50 @@
 /* ================= KONFIGURASI FIREBASE =================
-   Ganti FIREBASE_ENDPOINT jika beda proyek (tanpa trailing slash;
-   "/.json" ditambahkan otomatis di bawah).
-   Skema data yang diharapkan di Realtime Database — BEBAS, sensor
-   apa saja bisa dikirim, dial di halaman akan menyesuaikan sendiri:
-   {
-     "PLT-0221": { "berat": 428, "suhu": 27.4, "lembap": 58 },
-     "PLT-0222": { "berat": 512 }
-   }
+   Diinisialisasi pakai Firebase SDK asli (initializeApp + getDatabase
+   + onValue), BUKAN fetch REST manual. Ganti firebaseConfig di bawah
+   kalau proyek Firebase kamu berbeda.
+
+   Struktur data yang dibaca dari Realtime Database:
+   devices/
+     DEVICE001/
+       name, status, lastSeen
+       latest/ { weight, temperature, humidity, timestamp }
+   Nama field SENGAJA disamakan dengan yang dikirim ESP32/backend
+   (weight/temperature/humidity), bukan berat/suhu/lembap seperti
+   versi sebelumnya — inilah salah satu penyebab dashboard selalu 0.
 =========================================================== */
-const FIREBASE_ENDPOINT = "https://smartcoldstorage-69780-default-rtdb.asia-southeast1.firebasedatabase.app";
-const POLL_MS = 5000;
+const firebaseConfig = {
+  apiKey: "GANTI_DENGAN_API_KEY_ASLI",
+  authDomain: "smartcoldstorage-69780.firebaseapp.com",
+  databaseURL: "https://smartcoldstorage-69780-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "smartcoldstorage-69780",
+  storageBucket: "smartcoldstorage-69780.firebasestorage.app",
+  messagingSenderId: "GANTI_DENGAN_SENDER_ID_ASLI",
+  appId: "GANTI_DENGAN_APP_ID_ASLI",
+};
+
+/* Inisialisasi Firebase App + Realtime Database (SDK compat, dimuat di index.html).
+   BUG LAMA: initializeApp() dipanggil langsung tanpa try/catch. Kalau
+   firebaseConfig masih placeholder (mis. "GANTI_DENGAN_API_KEY_ASLI") atau
+   API key tidak valid, panggilan ini melempar exception saat SCRIPT
+   DIMUAT — karena ini kode top-level (bukan di dalam fungsi), exception
+   tsb menghentikan seluruh eksekusi sisa script.js pada baris ini juga.
+   Akibatnya listener db.ref('devices').on(...) di bagian bawah file
+   TIDAK PERNAH terpasang, sehingga dashboard permanen menampilkan 0
+   walau Firebase sendiri sudah punya data yang benar — ini root cause
+   lain dari masalah "dashboard 0", terpisah dari isu path data.
+   Sekarang dibungkus try/catch supaya kalaupun config salah, sisa UI
+   (termasuk modal "Pasang Alat") tetap berfungsi dan errornya terlihat
+   jelas di toast, bukan diam-diam gagal total. */
+let db = null;
+try {
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+} catch (err) {
+  console.error('Firebase initializeApp gagal:', err.message);
+  // Ditampilkan setelah showToast() didefinisikan, lihat pemanggilan di bawah.
+  window.__firebaseInitError = err.message;
+}
+
 const STORAGE_KEY = 'panelAlatDevices_v1';
 
 /* ---------------- Rentang & label sensor YANG SUDAH DIKENAL ----------------
@@ -17,20 +52,20 @@ const STORAGE_KEY = 'panelAlatDevices_v1';
    Sensuor lain yang tidak ada di sini tetap otomatis dibuat dialnya
    lewat rangeFor()/labelFor(), hanya tanpa ambang warn/crit resmi. */
 const RANGES = {
-  berat:   { min:0,  max:1000, warnAbove:800, critAbove:950 },
-  suhu:    { min:15, max:40,   warnAbove:29,  critAbove:33 },
-  lembap:  { min:0,  max:100,  warnAbove:80,  critAbove:90 },
-  battery: { min:0,  max:100,  warnBelow:30,  critBelow:15 },
+  weight:      { min:0,  max:1000, warnAbove:800, critAbove:950 },
+  temperature: { min:15, max:40,   warnAbove:29,  critAbove:33 },
+  humidity:    { min:0,  max:100,  warnAbove:80,  critAbove:90 },
+  battery:     { min:0,  max:100,  warnBelow:30,  critBelow:15 },
 };
-const LABELS = { berat:'Berat (Load Cell)', suhu:'Suhu', lembap:'Kelembapan', battery:'Baterai' };
-const UNITS  = { berat:'kg', suhu:'°C', lembap:'%', battery:'%' };
+const LABELS = { weight:'Berat (Load Cell)', temperature:'Suhu', humidity:'Kelembapan', battery:'Baterai' };
+const UNITS  = { weight:'kg', temperature:'°C', humidity:'%', battery:'%' };
 
 /* ikon kecil per jenis sensor — dipakai di label dial */
 const SENSOR_ICONS = {
-  berat:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 7h14"/><path d="M5 7 2.5 13a2.5 2.5 0 0 0 5 0Z"/><path d="M19 7l-2.5 6a2.5 2.5 0 0 0 5 0Z"/></svg>',
-  suhu:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14V4.5a1.5 1.5 0 0 0-3 0V14a3.5 3.5 0 1 0 3 0Z"/></svg>',
-  lembap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.5 6 10.5a6 6 0 0 1-12 0C6 9.5 12 3 12 3Z"/></svg>',
-  battery:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4"/></svg>',
+  weight:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 7h14"/><path d="M5 7 2.5 13a2.5 2.5 0 0 0 5 0Z"/><path d="M19 7l-2.5 6a2.5 2.5 0 0 0 5 0Z"/></svg>',
+  temperature: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14V4.5a1.5 1.5 0 0 0-3 0V14a3.5 3.5 0 1 0 3 0Z"/></svg>',
+  humidity:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.5 6 10.5a6 6 0 0 1-12 0C6 9.5 12 3 12 3Z"/></svg>',
+  battery:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4"/></svg>',
 };
 
 function rangeFor(key, value){
@@ -198,7 +233,7 @@ function submitPairing(){
   closePairModal();
   ['pairName','pairKey','pairToken'].forEach(id => document.getElementById(id).value = '');
   showToast(`"${name}" dipasang — menunggu data dari Firebase (key: ${key})`);
-  cycle();
+  render();
 }
 
 function paintPill(cardEl, level){
@@ -216,7 +251,9 @@ function render(){
   DEVICES.forEach(dev=>{
     const card = document.querySelector(`[data-device="${dev.key}"]`);
     if (!card) return;
-    const liveDev = liveData && liveData[dev.key] ? liveData[dev.key] : null;
+    // liveData berbentuk { DEVICE001: { name, status, lastSeen, latest: {...} }, ... }
+    // (hasil dari onValue di ref "devices"), jadi datanya ada di dev.key -> latest.
+    const liveDev = liveData && liveData[dev.key] && liveData[dev.key].latest ? liveData[dev.key].latest : null;
     const dataObj = liveDev || null;
 
     if (!dataObj){
@@ -236,7 +273,8 @@ function render(){
       return;
     }
 
-    const sensorKeys = Object.keys(dataObj).sort();
+    // "timestamp" bukan sensor — jangan dibuatkan gauge, cukup dipakai untuk info waktu
+    const sensorKeys = Object.keys(dataObj).filter(k => k !== 'timestamp').sort();
     const cachedKeys = card.dataset.sensorKeys || '';
     if (cachedKeys !== sensorKeys.join(',')){
       const row = card.querySelector('[data-role="gauge-row"]');
@@ -280,7 +318,7 @@ function renderHeroVitals(){
   const scaleEl = document.getElementById('heroVpScale');
   const chipsEl = document.getElementById('heroVpChips');
 
-  const activeDev = DEVICES.find(d => liveData && liveData[d.key]);
+  const activeDev = DEVICES.find(d => liveData && liveData[d.key] && liveData[d.key].latest);
 
   if (!activeDev){
     label.textContent = 'Pembacaan Live';
@@ -292,9 +330,9 @@ function renderHeroVitals(){
     return;
   }
 
-  const data = liveData[activeDev.key];
-  const keys = Object.keys(data).sort();
-  const primaryKey = keys.includes('berat') ? 'berat' : keys[0];
+  const data = liveData[activeDev.key].latest;
+  const keys = Object.keys(data).filter(k => k !== 'timestamp').sort();
+  const primaryKey = keys.includes('weight') ? 'weight' : keys[0];
   const primaryVal = Number(data[primaryKey]);
   const r = rangeFor(primaryKey, primaryVal);
   const pct = percentOf(primaryKey, primaryVal);
@@ -337,27 +375,65 @@ function showToast(msg){
   showToast._t = setTimeout(() => toast.classList.remove('show'), 4000);
 }
 
-async function pollFirebase(){
-  try{
-    const res = await fetch(`${FIREBASE_ENDPOINT}/.json`, { cache:'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    firebaseReachable = true;
-    liveData = (data && DEVICES.some(dev => data[dev.key])) ? data : null;
-  } catch (err){
-    firebaseReachable = false;
-    liveData = null;
-    showToast('Firebase Offline');
+/* ================= LISTENER REALTIME FIREBASE =================
+   Ini penggantian utama dari bug lama: sebelumnya kode melakukan
+   fetch(`${FIREBASE_ENDPOINT}/.json`) ke ROOT database lalu mengira
+   device ada langsung di root (data[dev.key]). Padahal struktur asli
+   adalah devices/{deviceId}/latest, sehingga data[dev.key] selalu
+   undefined dan dashboard permanen menampilkan 0/null.
+
+   Sekarang kita pasang listener realtime langsung ke node "devices"
+   memakai onValue (db.ref(...).on('value', ...)), sehingga setiap
+   ESP32 mengirim data baru, dashboard otomatis update tanpa delay
+   polling dan tanpa salah path.
+=========================================================== */
+if (db){
+  db.ref('devices').on('value',
+    (snapshot) => {
+      firebaseReachable = true;
+      const data = snapshot.val();
+      liveData = data || null;
+      render();
+    },
+    (err) => {
+      // Listener error (misalnya rules Firebase menolak akses)
+      firebaseReachable = false;
+      liveData = null;
+      console.error('Firebase onValue error:', err.message);
+      showToast('Firebase Offline: ' + err.message);
+      render();
+    }
+  );
+} else {
+  // initializeApp gagal di atas (lihat blok try/catch) — jangan biarkan
+  // sisa dashboard diam-diam terlihat "menunggu data" tanpa penjelasan.
+  firebaseReachable = false;
+  showToast('Konfigurasi Firebase belum valid: ' + (window.__firebaseInitError || 'periksa firebaseConfig di script.js'));
+}
+
+function manualRefresh(){
+  if (!db){
+    showToast('Firebase belum tersambung — periksa firebaseConfig di script.js');
+    return;
   }
+  // Ambil snapshot terbaru sekali saja (di luar listener realtime),
+  // berguna untuk tombol "refresh manual" di UI.
+  db.ref('devices').once('value')
+    .then(snapshot => {
+      firebaseReachable = true;
+      liveData = snapshot.val() || null;
+      render();
+    })
+    .catch(err => {
+      firebaseReachable = false;
+      liveData = null;
+      showToast('Firebase Offline: ' + err.message);
+      render();
+    });
 }
-
-async function cycle(){
-  await pollFirebase();
-  render();
-}
-
-function manualRefresh(){ cycle(); }
 
 buildDeviceCards();
-cycle();
-setInterval(cycle, POLL_MS);
+render();
+// Jam pada kartu ("time") tetap perlu di-refresh berkala walau tidak ada
+// data baru, supaya terlihat halaman masih hidup.
+setInterval(render, 1000);
